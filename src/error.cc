@@ -24,9 +24,12 @@
 
 // static
 const char heif::Error::kSuccess[] = "Success";
+const char* cUnknownError = "Unknown error";
+
 
 heif::Error::Error()
-  : error_code(heif_error_Ok)
+  : error_code(heif_error_Ok),
+    sub_error_code(heif_suberror_Unspecified)
 {
 }
 
@@ -81,6 +84,7 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
   case heif_suberror_No_iinf_box: return "No 'iinf' box";
   case heif_suberror_No_iprp_box: return "No 'iprp' box";
   case heif_suberror_No_iref_box: return "No 'iref' box";
+  case heif_suberror_No_infe_box: return "No 'infe' box";
   case heif_suberror_No_pict_handler: return "Not a 'pict' handler";
   case heif_suberror_Ipma_box_references_nonexisting_property: return "'ipma' box references a non-existing property";
   case heif_suberror_No_properties_assigned_to_item: return "No properties assigned to item";
@@ -89,6 +93,7 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
   case heif_suberror_Invalid_overlay_data: return "Invalid overlay data";
   case heif_suberror_Overlay_image_outside_of_canvas: return "Overlay image outside of canvas area";
   case heif_suberror_Auxiliary_image_type_unspecified: return "Type of auxiliary image unspecified";
+  case heif_suberror_No_or_invalid_primary_image: return "No or invalid primary image";
 
     // --- Memory_allocation_error ---
 
@@ -99,39 +104,48 @@ const char* heif::Error::get_error_string(heif_suberror_code err)
   case heif_suberror_Nonexisting_image_referenced: return "Non-existing image ID referenced";
   case heif_suberror_Null_pointer_argument: return "NULL argument received";
   case heif_suberror_Nonexisting_image_channel_referenced: return "Non-existing image channel referenced";
-
+  case heif_suberror_Unsupported_plugin_version: return "The version of the passed plugin is not supported";
+  case heif_suberror_Index_out_of_range: return "Index out of range";
 
     // --- Unsupported_feature ---
 
   case heif_suberror_Unsupported_codec: return "Unsupported codec";
   case heif_suberror_Unsupported_image_type: return "Unsupported image type";
   case heif_suberror_Unsupported_data_version: return "Unsupported data version";
+  case heif_suberror_Unsupported_color_conversion: return "Unsupported color conversion";
   }
 
   assert(false);
-  return "Unknown error";
+  return cUnknownError;
 }
 
 
 heif_error heif::Error::error_struct(ErrorBuffer* error_buffer) const
 {
-  if (error_code == heif_error_Ok) {
-    error_buffer->set_success();
-  }
-  else {
-    std::stringstream sstr;
-    sstr << get_error_string(error_code) << ": "
-         << get_error_string(sub_error_code);
-    if (!message.empty()) {
-      sstr << ": " << message;
+  if (error_buffer) {
+    if (error_code == heif_error_Ok) {
+      error_buffer->set_success();
     }
+    else {
+      std::stringstream sstr;
+      sstr << get_error_string(error_code) << ": "
+           << get_error_string(sub_error_code);
+      if (!message.empty()) {
+        sstr << ": " << message;
+      }
 
-    error_buffer->set_error(sstr.str());
+      error_buffer->set_error(sstr.str());
+    }
   }
 
   heif_error err;
   err.code = error_code;
   err.subcode = sub_error_code;
-  err.message = error_buffer->get_error();
+  if (error_buffer) {
+    err.message = error_buffer->get_error();
+  }
+  else {
+    err.message = cUnknownError;
+  }
   return err;
 }

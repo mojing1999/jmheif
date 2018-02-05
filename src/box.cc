@@ -86,13 +86,13 @@ int Fraction::round() const
 }
 
 
-std::string to_fourcc(uint32_t code)
+static std::string to_fourcc(uint32_t code)
 {
   std::string str("    ");
-  str[0] = (code>>24) & 0xFF;
-  str[1] = (code>>16) & 0xFF;
-  str[2] = (code>> 8) & 0xFF;
-  str[3] = (code>> 0) & 0xFF;
+  str[0] = static_cast<char>((code>>24) & 0xFF);
+  str[1] = static_cast<char>((code>>16) & 0xFF);
+  str[2] = static_cast<char>((code>> 8) & 0xFF);
+  str[3] = static_cast<char>((code>> 0) & 0xFF);
 
   return str;
 }
@@ -103,102 +103,6 @@ heif::BoxHeader::BoxHeader()
 }
 
 
-uint16_t read8(BitstreamRange& range)
-{
-  if (!range.read(1)) {
-    return 0;
-  }
-
-  uint8_t buf;
-
-  std::istream* istr = range.get_istream();
-  istr->read((char*)&buf,1);
-
-  if (istr->fail()) {
-    range.set_eof_reached();
-    return 0;
-  }
-
-  return buf;
-}
-
-
-uint16_t read16(BitstreamRange& range)
-{
-  if (!range.read(2)) {
-    return 0;
-  }
-
-  uint8_t buf[2];
-
-  std::istream* istr = range.get_istream();
-  istr->read((char*)buf,2);
-
-  if (istr->fail()) {
-    range.set_eof_reached();
-    return 0;
-  }
-
-  return ((buf[0]<<8) | (buf[1]));
-}
-
-
-uint32_t read32(BitstreamRange& range)
-{
-  if (!range.read(4)) {
-    return 0;
-  }
-
-  uint8_t buf[4];
-
-  std::istream* istr = range.get_istream();
-  istr->read((char*)buf,4);
-
-  if (istr->fail()) {
-    range.set_eof_reached();
-    return 0;
-  }
-
-  return ((buf[0]<<24) |
-          (buf[1]<<16) |
-          (buf[2]<< 8) |
-          (buf[3]));
-}
-
-
-std::string read_string(BitstreamRange& range)
-{
-  std::string str;
-
-  if (range.eof()) {
-    return "";
-  }
-
-  for (;;) {
-    if (!range.read(1)) {
-      return std::string();
-    }
-
-    std::istream* istr = range.get_istream();
-    int c = istr->get();
-
-    if (istr->fail()) {
-      range.set_eof_reached();
-      return std::string();
-    }
-
-    if (c==0) {
-      break;
-    }
-    else {
-      str += (char)c;
-    }
-  }
-
-  return str;
-}
-
-
 std::vector<uint8_t> heif::BoxHeader::get_type() const
 {
   if (m_type == fourcc("uuid")) {
@@ -206,10 +110,10 @@ std::vector<uint8_t> heif::BoxHeader::get_type() const
   }
   else {
     std::vector<uint8_t> type(4);
-    type[0] = (m_type>>24) & 0xFF;
-    type[1] = (m_type>>16) & 0xFF;
-    type[2] = (m_type>> 8) & 0xFF;
-    type[3] = (m_type>> 0) & 0xFF;
+    type[0] = static_cast<uint8_t>((m_type>>24) & 0xFF);
+    type[1] = static_cast<uint8_t>((m_type>>16) & 0xFF);
+    type[2] = static_cast<uint8_t>((m_type>> 8) & 0xFF);
+    type[3] = static_cast<uint8_t>((m_type>> 0) & 0xFF);
     return type;
   }
 }
@@ -243,14 +147,14 @@ std::string heif::BoxHeader::get_type_string() const
 
 heif::Error heif::BoxHeader::parse(BitstreamRange& range)
 {
-  m_size = read32(range);
-  m_type = read32(range);
+  m_size = range.read32();
+  m_type = range.read32();
 
   m_header_size = 8;
 
   if (m_size==1) {
-    uint64_t high = read32(range);
-    uint64_t low  = read32(range);
+    uint64_t high = range.read32();
+    uint64_t low  = range.read32();
 
     m_size = (high<<32) | low;
     m_header_size += 8;
@@ -313,8 +217,8 @@ Error Box::parse(BitstreamRange& range)
 
 Error BoxHeader::parse_full_box_header(BitstreamRange& range)
 {
-  uint32_t data = read32(range);
-  m_version = data >> 24;
+  uint32_t data = range.read32();
+  m_version = static_cast<uint8_t>(data >> 24);
   m_flags = data & 0x00FFFFFF;
   m_is_full_box = true;
 
@@ -552,8 +456,8 @@ std::string Box::dump_children(Indent& indent) const
 
 Error Box_ftyp::parse(BitstreamRange& range)
 {
-  m_major_brand = read32(range);
-  m_minor_version = read32(range);
+  m_major_brand = range.read32();
+  m_minor_version = range.read32();
 
   if (get_box_size() <= get_header_size() + 8) {
     // Sanity check.
@@ -562,10 +466,10 @@ Error Box_ftyp::parse(BitstreamRange& range)
                  "ftyp box too small (less than 8 bytes)");
   }
 
-  int n_minor_brands = (get_box_size() - get_header_size() - 8) / 4;
+  uint64_t n_minor_brands = (get_box_size() - get_header_size() - 8) / 4;
 
-  for (int i=0;i<n_minor_brands && !range.error();i++) {
-    m_compatible_brands.push_back( read32(range) );
+  for (uint64_t i=0;i<n_minor_brands && !range.error();i++) {
+    m_compatible_brands.push_back( range.read32() );
   }
 
   return range.get_error();
@@ -685,14 +589,14 @@ Error Box_hdlr::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  m_pre_defined = read32(range);
-  m_handler_type = read32(range);
+  m_pre_defined = range.read32();
+  m_handler_type = range.read32();
 
   for (int i=0;i<3;i++) {
-    m_reserved[i] = read32(range);
+    m_reserved[i] = range.read32();
   }
 
-  m_name = read_string(range);
+  m_name = range.read_string();
 
   return range.get_error();
 }
@@ -715,10 +619,10 @@ Error Box_pitm::parse(BitstreamRange& range)
   parse_full_box_header(range);
 
   if (get_version()==0) {
-    m_item_ID = read16(range);
+    m_item_ID = range.read16();
   }
   else {
-    m_item_ID = read32(range);
+    m_item_ID = range.read32();
   }
 
   return range.get_error();
@@ -745,7 +649,7 @@ Error Box_iloc::parse(BitstreamRange& range)
 
   parse_full_box_header(range);
 
-  uint16_t values4 = read16(range);
+  uint16_t values4 = range.read16();
 
   int offset_size = (values4 >> 12) & 0xF;
   int length_size = (values4 >>  8) & 0xF;
@@ -758,10 +662,10 @@ Error Box_iloc::parse(BitstreamRange& range)
 
   int item_count;
   if (get_version()<2) {
-    item_count = read16(range);
+    item_count = range.read16();
   }
   else {
-    item_count = read32(range);
+    item_count = range.read32();
   }
 
   // Sanity check.
@@ -779,29 +683,29 @@ Error Box_iloc::parse(BitstreamRange& range)
     Item item;
 
     if (get_version()<2) {
-      item.item_ID = read16(range);
+      item.item_ID = range.read16();
     }
     else {
-      item.item_ID = read32(range);
+      item.item_ID = range.read32();
     }
 
     if (get_version()>=1) {
-      values4 = read16(range);
+      values4 = range.read16();
       item.construction_method = (values4 & 0xF);
     }
 
-    item.data_reference_index = read16(range);
+    item.data_reference_index = range.read16();
 
     item.base_offset = 0;
     if (base_offset_size==4) {
-      item.base_offset = read32(range);
+      item.base_offset = range.read32();
     }
     else if (base_offset_size==8) {
-      item.base_offset = ((uint64_t)read32(range)) << 32;
-      item.base_offset |= read32(range);
+      item.base_offset = ((uint64_t)range.read32()) << 32;
+      item.base_offset |= range.read32();
     }
 
-    int extent_count = read16(range);
+    int extent_count = range.read16();
     // Sanity check.
     if (extent_count > MAX_ILOC_EXTENTS_PER_ITEM) {
       std::stringstream sstr;
@@ -818,31 +722,31 @@ Error Box_iloc::parse(BitstreamRange& range)
 
       if (get_version()>1 && index_size>0) {
         if (index_size==4) {
-          extent.index = read32(range);
+          extent.index = range.read32();
         }
         else if (index_size==8) {
-          extent.index = ((uint64_t)read32(range)) << 32;
-          extent.index |= read32(range);
+          extent.index = ((uint64_t)range.read32()) << 32;
+          extent.index |= range.read32();
         }
       }
 
       extent.offset = 0;
       if (offset_size==4) {
-        extent.offset = read32(range);
+        extent.offset = range.read32();
       }
       else if (offset_size==8) {
-        extent.offset = ((uint64_t)read32(range)) << 32;
-        extent.offset |= read32(range);
+        extent.offset = ((uint64_t)range.read32()) << 32;
+        extent.offset |= range.read32();
       }
 
 
       extent.length = 0;
       if (length_size==4) {
-        extent.length = read32(range);
+        extent.length = range.read32();
       }
       else if (length_size==8) {
-        extent.length = ((uint64_t)read32(range)) << 32;
-        extent.length |= read32(range);
+        extent.length = ((uint64_t)range.read32()) << 32;
+        extent.length |= range.read32();
       }
 
       item.extents.push_back(extent);
@@ -909,8 +813,19 @@ Error Box_iloc::read_data(const Item& item, std::istream& istr,
       }
 
       size_t old_size = dest->size();
-      dest->resize(old_size + extent.length);
-      istr.read((char*)dest->data() + old_size, extent.length);
+      if (MAX_MEMORY_BLOCK_SIZE - old_size < extent.length) {
+        std::stringstream sstr;
+        sstr << "iloc box contained " << extent.length << " bytes, total memory size would be "
+             << (old_size + extent.length) << " bytes, exceeding the security limit of "
+             << MAX_MEMORY_BLOCK_SIZE << " bytes";
+
+        return Error(heif_error_Memory_allocation_error,
+                     heif_suberror_Security_limit_exceeded,
+                     sstr.str());
+      }
+
+      dest->resize(static_cast<size_t>(old_size + extent.length));
+      istr.read((char*)dest->data() + old_size, static_cast<size_t>(extent.length));
 
 #if 1
   //printf("----------------------------\n");
@@ -956,37 +871,37 @@ Error Box_infe::parse(BitstreamRange& range)
   parse_full_box_header(range);
 
   if (get_version() <= 1) {
-    m_item_ID = read16(range);
-    m_item_protection_index = read16(range);
+    m_item_ID = range.read16();
+    m_item_protection_index = range.read16();
 
-    m_item_name = read_string(range);
-    m_content_type = read_string(range);
-    m_content_encoding = read_string(range);
+    m_item_name = range.read_string();
+    m_content_type = range.read_string();
+    m_content_encoding = range.read_string();
   }
 
   if (get_version() >= 2) {
     m_hidden_item = (get_flags() & 1);
 
     if (get_version() == 2) {
-      m_item_ID = read16(range);
+      m_item_ID = range.read16();
     }
     else {
-      m_item_ID = read32(range);
+      m_item_ID = range.read32();
     }
 
-    m_item_protection_index = read16(range);
-    uint32_t item_type =read32(range);
+    m_item_protection_index = range.read16();
+    uint32_t item_type =range.read32();
     if (item_type != 0) {
       m_item_type = to_fourcc(item_type);
     }
 
-    m_item_name = read_string(range);
+    m_item_name = range.read_string();
     if (item_type == fourcc("mime")) {
-      m_content_type = read_string(range);
-      m_content_encoding = read_string(range);
+      m_content_type = range.read_string();
+      m_content_encoding = range.read_string();
     }
     else if (item_type == fourcc("uri ")) {
-      m_item_uri_type = read_string(range);
+      m_item_uri_type = range.read_string();
     }
   }
 
@@ -1020,10 +935,10 @@ Error Box_iinf::parse(BitstreamRange& range)
 
   int item_count;
   if (nEntries_size==2) {
-    item_count = read16(range);
+    item_count = range.read16();
   }
   else {
-    item_count = read32(range);
+    item_count = range.read32();
   }
 
   if (item_count == 0) {
@@ -1127,8 +1042,8 @@ Error Box_ispe::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  m_image_width = read32(range);
-  m_image_height = read32(range);
+  m_image_width = range.read32();
+  m_image_height = range.read32();
 
   return range.get_error();
 }
@@ -1150,28 +1065,28 @@ Error Box_ipma::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  int entry_cnt = read32(range);
+  int entry_cnt = range.read32();
   for (int i = 0; i < entry_cnt && !range.error() && !range.eof(); i++) {
     Entry entry;
     if (get_version()<1) {
-      entry.item_ID = read16(range);
+      entry.item_ID = range.read16();
     }
     else {
-      entry.item_ID = read32(range);
+      entry.item_ID = range.read32();
     }
 
-    int assoc_cnt = read8(range);
+    int assoc_cnt = range.read8();
     for (int k=0;k<assoc_cnt;k++) {
       PropertyAssociation association;
 
       uint16_t index;
       if (get_flags() & 1) {
-        index = read16(range);
+        index = range.read16();
         association.essential = !!(index & 0x8000);
         association.property_index = (index & 0x7fff);
       }
       else {
-        index = read8(range);
+        index = range.read8();
         association.essential = !!(index & 0x80);
         association.property_index = (index & 0x7f);
       }
@@ -1221,10 +1136,10 @@ Error Box_auxC::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  m_aux_type = read_string(range);
+  m_aux_type = range.read_string();
 
   while (!range.eof()) {
-    m_aux_subtypes.push_back( read8(range) );
+    m_aux_subtypes.push_back( range.read8() );
   }
 
   return range.get_error();
@@ -1252,7 +1167,7 @@ Error Box_irot::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  uint16_t rotation = read8(range);
+  uint16_t rotation = range.read8();
   rotation &= 0x03;
 
   m_rotation = rotation * 90;
@@ -1276,7 +1191,7 @@ Error Box_imir::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  uint16_t axis = read8(range);
+  uint16_t axis = range.read8();
   if (axis & 1) {
     m_axis = MirrorAxis::Horizontal;
   }
@@ -1307,14 +1222,14 @@ Error Box_clap::parse(BitstreamRange& range)
 {
   //parse_full_box_header(range);
 
-  m_clean_aperture_width.numerator   = read32(range);
-  m_clean_aperture_width.denominator = read32(range);
-  m_clean_aperture_height.numerator   = read32(range);
-  m_clean_aperture_height.denominator = read32(range);
-  m_horizontal_offset.numerator   = read32(range);
-  m_horizontal_offset.denominator = read32(range);
-  m_vertical_offset.numerator   = read32(range);
-  m_vertical_offset.denominator = read32(range);
+  m_clean_aperture_width.numerator   = range.read32();
+  m_clean_aperture_width.denominator = range.read32();
+  m_clean_aperture_height.numerator   = range.read32();
+  m_clean_aperture_height.denominator = range.read32();
+  m_horizontal_offset.numerator   = range.read32();
+  m_horizontal_offset.denominator = range.read32();
+  m_vertical_offset.numerator   = range.read32();
+  m_vertical_offset.denominator = range.read32();
 
   return range.get_error();
 }
@@ -1370,10 +1285,27 @@ int Box_clap::top_rounded(int image_height) const
 int Box_clap::bottom_rounded(int image_height) const
 {
   Fraction pcY  = m_vertical_offset + Fraction(image_height-1, 2);
-  Fraction top = pcY + (m_clean_aperture_height-1)/2;
+  Fraction bottom = pcY + (m_clean_aperture_height-1)/2;
 
-  return top.round();
+  return bottom.round();
 }
+
+int Box_clap::get_width_rounded() const
+{
+  int left  = (Fraction(0,1)-(m_clean_aperture_width-1)/2).round();
+  int right = (  (m_clean_aperture_width-1)/2).round();
+
+  return right+1-left;
+}
+
+int Box_clap::get_height_rounded() const
+{
+  int top    = (Fraction(0,1)-(m_clean_aperture_height-1)/2).round();
+  int bottom = ( (m_clean_aperture_height-1)/2).round();
+
+  return bottom+1-top;
+}
+
 
 
 Error Box_iref::parse(BitstreamRange& range)
@@ -1389,20 +1321,20 @@ Error Box_iref::parse(BitstreamRange& range)
     }
 
     if (get_version()==0) {
-      ref.from_item_ID = read16(range);
-      int nRefs = read16(range);
+      ref.from_item_ID = range.read16();
+      int nRefs = range.read16();
       for (int i=0;i<nRefs;i++) {
-        ref.to_item_ID.push_back( read16(range) );
+        ref.to_item_ID.push_back( range.read16() );
         if (range.eof()) {
           break;
         }
       }
     }
     else {
-      ref.from_item_ID = read32(range);
-      int nRefs = read16(range);
+      ref.from_item_ID = range.read32();
+      int nRefs = range.read16();
       for (int i=0;i<nRefs;i++) {
-        ref.to_item_ID.push_back( read32(range) );
+        ref.to_item_ID.push_back( range.read32() );
         if (range.eof()) {
           break;
         }
@@ -1477,53 +1409,53 @@ Error Box_hvcC::parse(BitstreamRange& range)
 
   uint8_t byte;
 
-  m_configuration_version = read8(range);
-  byte = read8(range);
+  m_configuration_version = range.read8();
+  byte = range.read8();
   m_general_profile_space = (byte>>6) & 3;
   m_general_tier_flag = (byte>>5) & 1;
   m_general_profile_idc = (byte & 0x1F);
 
-  m_general_profile_compatibility_flags = read32(range);
+  m_general_profile_compatibility_flags = range.read32();
 
   for (int i=0; i<6; i++)
     {
-      byte = read8(range);
+      byte = range.read8();
 
       for (int b=0;b<8;b++) {
         m_general_constraint_indicator_flags[i*8+b] = (byte >> (7-b)) & 1;
       }
     }
 
-  m_general_level_idc = read8(range);
-  m_min_spatial_segmentation_idc = read16(range) & 0x0FFF;
-  m_parallelism_type = read8(range) & 0x03;
-  m_chroma_format = read8(range) & 0x03;
-  m_bit_depth_luma = (read8(range) & 0x07) + 8;
-  m_bit_depth_chroma = (read8(range) & 0x07) + 8;
-  m_avg_frame_rate = read16(range);
+  m_general_level_idc = range.read8();
+  m_min_spatial_segmentation_idc = range.read16() & 0x0FFF;
+  m_parallelism_type = range.read8() & 0x03;
+  m_chroma_format = range.read8() & 0x03;
+  m_bit_depth_luma = static_cast<uint8_t>((range.read8() & 0x07) + 8);
+  m_bit_depth_chroma = static_cast<uint8_t>((range.read8() & 0x07) + 8);
+  m_avg_frame_rate = range.read16();
 
-  byte = read8(range);
+  byte = range.read8();
   m_constant_frame_rate = (byte >> 6) & 0x03;
   m_num_temporal_layers = (byte >> 3) & 0x07;
   m_temporal_id_nested = (byte >> 2) & 1;
-  m_length_size = (byte & 0x03) + 1;
+  m_length_size = static_cast<uint8_t>((byte & 0x03) + 1);
 
-  int nArrays = read8(range);
+  int nArrays = range.read8();
 
   for (int i=0; i<nArrays && !range.error(); i++)
     {
-      byte = read8(range);
+      byte = range.read8();
 
       NalArray array;
 
       array.m_array_completeness = (byte >> 6) & 1;
       array.m_NAL_unit_type = (byte & 0x3F);
 
-      int nUnits = read16(range);
+      int nUnits = range.read16();
       for (int u=0; u<nUnits && !range.error(); u++) {
 
         std::vector<uint8_t> nal_unit;
-        int size = read16(range);
+        int size = range.read16();
         if (!size) {
           // Ignore empty NAL units.
           continue;
@@ -1665,7 +1597,7 @@ Error Box_idat::read_data(std::istream& istr, uint64_t start, uint64_t length,
   // reserve space for the data in the output array
   auto curr_size = out_data.size();
 
-  if (curr_size + length > MAX_MEMORY_BLOCK_SIZE) {
+  if (MAX_MEMORY_BLOCK_SIZE - curr_size < length) {
     std::stringstream sstr;
     sstr << "idat box contained " << length << " bytes, total memory size would be "
          << (curr_size + length) << " bytes, exceeding the security limit of "
@@ -1676,10 +1608,10 @@ Error Box_idat::read_data(std::istream& istr, uint64_t start, uint64_t length,
                  sstr.str());
   }
 
-  out_data.resize(curr_size + length);
+  out_data.resize(static_cast<size_t>(curr_size + length));
   uint8_t* data = &out_data[curr_size];
 
-  istr.read((char*)data, length);
+  istr.read((char*)data, static_cast<size_t>(length));
 
   return Error::Ok;
 }
@@ -1703,14 +1635,14 @@ Error Box_grpl::parse(BitstreamRange& range)
       return err;
     }
 
-    group.group_id = read32(range);
-    int nEntities = read32(range);
+    group.group_id = range.read32();
+    int nEntities = range.read32();
     for (int i=0;i<nEntities;i++) {
       if (range.eof()) {
         break;
       }
 
-      group.entity_ids.push_back( read32(range) );
+      group.entity_ids.push_back( range.read32() );
     }
 
     m_entity_groups.push_back(group);
@@ -1763,7 +1695,7 @@ Error Box_dref::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  int nEntities = read32(range);
+  int nEntities = range.read32();
 
   /*
   for (int i=0;i<nEntities;i++) {
@@ -1800,7 +1732,7 @@ Error Box_url::parse(BitstreamRange& range)
 {
   parse_full_box_header(range);
 
-  m_location = read_string(range);
+  m_location = range.read_string();
 
   return range.get_error();
 }

@@ -21,7 +21,6 @@
 #ifndef LIBHEIF_HEIF_H
 #define LIBHEIF_HEIF_H
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -158,6 +157,9 @@ enum heif_suberror_code {
 
   heif_suberror_Auxiliary_image_type_unspecified = 123,
 
+  heif_suberror_No_or_invalid_primary_image = 124,
+
+  heif_suberror_No_infe_box = 125,
 
 
   // --- Memory_allocation_error ---
@@ -165,30 +167,38 @@ enum heif_suberror_code {
   // A security limit preventing unreasonable memory allocations was exceeded by the input file.
   // Please check whether the file is valid. If it is, contact us so that we could increase the
   // security limits further.
-  heif_suberror_Security_limit_exceeded = 200,
+  heif_suberror_Security_limit_exceeded = 1000,
 
 
   // --- Usage_error ---
 
   // An image ID was used that is not present in the file.
-  heif_suberror_Nonexisting_image_referenced = 300, // also used for Invalid_input
+  heif_suberror_Nonexisting_image_referenced = 2000, // also used for Invalid_input
 
   // An API argument was given a NULL pointer, which is not allowed for that function.
-  heif_suberror_Null_pointer_argument = 301,
+  heif_suberror_Null_pointer_argument = 2001,
 
   // Image channel referenced that does not exist in the image
-  heif_suberror_Nonexisting_image_channel_referenced = 302,
+  heif_suberror_Nonexisting_image_channel_referenced = 2002,
+
+  // The version of the passed plugin is not supported.
+  heif_suberror_Unsupported_plugin_version = 2003,
+
+  heif_suberror_Index_out_of_range = 2004,
 
 
   // --- Unsupported_feature ---
 
   // Image was coded with an unsupported compression method.
-  heif_suberror_Unsupported_codec = 400,
+  heif_suberror_Unsupported_codec = 3000,
 
   // Image is specified in an unknown way, e.g. as tiled grid image (which is supported)
-  heif_suberror_Unsupported_image_type = 401,
+  heif_suberror_Unsupported_image_type = 3001,
 
-  heif_suberror_Unsupported_data_version = 402
+  heif_suberror_Unsupported_data_version = 3002,
+
+  // The conversion of the source image to the requested chroma / colorspace is not supported.
+  heif_suberror_Unsupported_color_conversion = 3003
 };
 
 
@@ -206,13 +216,15 @@ struct heif_error
 };
 
 
+typedef uint32_t heif_image_id;
+#define INVALID_IMAGE_ID  0xFFFFFFFF
 
 
 typedef void* heif_handle;
 typedef void* image_handle;
 
 
-
+#if 0
 typedef struct _yuv_image_data_
 {
   int width;
@@ -227,39 +239,157 @@ typedef struct heif_image_info_
 {
   int width;
   int height;
+
   int bit_depth;
   int chroma;
   int colorspace;
 
-
   int codec_type;
 
-  bool is_primary;
-  bool is_thumbnail;
-
 }heif_image_info;
+#endif
 
-typedef struct heif_image_data_
+typedef struct heif_base_image
 {
-  heif_image_info info;
+  uint8_t *buf;  
+  int buf_size;
+  int data_len;
+  
+}base_image;
 
-  //
+#if 0
+typedef struct heif_hvc1_image
+{
+  base_image *hvc1;
+
+
+}hvc1_image;
+
+typedef struct _heif_grid_image
+{
+  base_image **tiles;
   int tiles_count;
   int tile_rows;
   int tile_columns;
-  int *arr_tile_data_len;
-  uint8_t **arr_tile_data;
-  heif_image_info *tile_info;
+  int tile_width;
+  int tile_height;
 
+} grid_image;
+
+typedef struct _heif_derived_image
+{
+  base_image *derived;
+
+
+}derived_image;
+
+typedef struct _heif_overlay_image
+{
+  base_image *overlay;
+
+
+}overlay_image;
+
+typedef struct _heif_thumbnails_image
+{
+  base_image *thumb;
+  int thumb_width;
+  int thumb_height;
+}thumb_image;
+
+
+typedef struct heif_image_data_
+{
+  heif_image_info *info;
   //
-  int thumb_count;
-  uint8_t **arr_thumb_data;
-  heif_image_info *thumb_info;
+  enum heif_image_type image_type; // hvc1 / grid / iden / overlay
+  void *image_data;
 
+  thumb_image *thumb;
   // default YUV420
   uint8_t *heif_yuv_data;
   
 }heif_image;
+#endif
+
+enum heif_image_type
+{
+  // hvc1 / grid / iden / overlay
+  HEIF_IMAGE_TYPE_UNKNOW = -1,
+  HEIF_IMAGE_TYPE_HVC1 = 0,
+  HEIF_IMAGE_TYPE_GRID = 1,
+  HEIF_IMAGE_TYPE_IDEN = 2,
+  HEIF_IMAGE_TYPE_IOVL = 3
+};
+
+typedef struct _heif_image{
+  // image info
+  int width;
+  int height;
+  int bit_depth;
+  int chroma;
+  int codec_type;
+
+  // hvc1 / grid / iden / overlay
+  enum heif_image_type image_type; 
+  // compressed image data
+  base_image _image;
+
+  // thumb 
+  base_image thumb;
+  int thumb_width;
+  int thumb_height;
+
+  // grid image info
+  int tiles_count;
+  int tile_rows;
+  int tile_columns;
+  int tile_width;
+  int tile_height;
+
+  // overlay image info
+
+
+  // derived image info
+
+  uint8_t *yuv_image;
+  int yuv_len;
+
+}heif_image;
+
+
+
+enum heif_depth_representation_type {
+  heif_depth_representation_type_uniform_inverse_Z = 0,
+  heif_depth_representation_type_uniform_disparity = 1,
+  heif_depth_representation_type_uniform_Z = 2,
+  heif_depth_representation_type_nonuniform_disparity = 3
+};
+
+struct heif_depth_representation_info {
+  uint8_t version;
+
+  // version 1 fields
+
+  uint8_t has_z_near;
+  uint8_t has_z_far;
+  uint8_t has_d_min;
+  uint8_t has_d_max;
+
+  double z_near;
+  double z_far;
+  double d_min;
+  double d_max;
+
+  enum heif_depth_representation_type depth_representation_type;
+  uint32_t disparity_reference_view;
+
+  uint32_t depth_nonlinear_representation_model_size;
+  uint8_t* depth_nonlinear_representation_model;
+
+  // version 2 fields below
+};
+
 
 // Allocate a new context for reading HEIF files.
 // Has to be freed again with heif_context_free().
@@ -289,23 +419,15 @@ int heif_get_primary_image_index(heif_handle h);
 LIBHEIF_API
 int heif_get_number_of_images(heif_handle h);
 
-#if 0
-LIBHEIF_API
-heif_error heif_get_image_handle(heif_handle h, int image_idx, image_handle* img_handle);
-#endif
 
 LIBHEIF_API
-int heif_get_image_tiles_count(heif_handle h, int image_idx);
+heif_image *heif_create_image_buffer(heif_handle h);
 
 LIBHEIF_API
-heif_error heif_get_image_tiles_info(heif_handle h, int image_idx);
-
-//LIBHEIF_API
-//heif_error heif_get_image_tiles_compressed_data(heif_handle h, int image_idx, int tile_idx, std::vector<uint8_t>* out_data);
-
+void heif_destory_image_buffer(heif_handle h,heif_image *img);
 
 LIBHEIF_API
-heif_error heif_get_image_compressed_data(heif_handle h, int image_idx, heif_image* out_data);
+heif_error heif_get_image_data(heif_handle h, int image_idx, heif_image* out_data);
 
 
 
@@ -317,7 +439,6 @@ void heif_debug_dump_box(heif_handle h);
 
 LIBHEIF_API
 void heif_debug_dump_image_info(heif_handle h, int image_idx);
-
 
 
 
@@ -337,11 +458,12 @@ enum heif_compression_format {
 
 enum heif_chroma {
   heif_chroma_undefined=99,
-  heif_chroma_mono=0,
+  heif_chroma_monochrome=0,
   heif_chroma_420=1,
   heif_chroma_422=2,
   heif_chroma_444=3,
-  heif_chroma_interleaved_24bit=10
+  heif_chroma_interleaved_24bit=10,
+  heif_chroma_interleaved_32bit=11
 };
 
 enum heif_colorspace {
@@ -359,6 +481,7 @@ enum heif_channel {
   heif_channel_G = 4,
   heif_channel_B = 5,
   heif_channel_Alpha = 6,
+  heif_channel_Depth = 7,
   heif_channel_interleaved = 10
 };
 

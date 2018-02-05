@@ -25,7 +25,11 @@
 #include "heif.h"
 
 #include <map>
-#include <assert.h>
+#include <memory>
+#include <string>
+#include <map>
+#include <vector>
+
 
 namespace heif {
 
@@ -38,31 +42,40 @@ namespace heif {
     Error read_from_file(const char* input_filename);
     Error read_from_memory(const void* data, size_t size);
 
-    int get_num_images() const { return m_images.size(); }
+    int get_num_images() const { return static_cast<int>(m_images.size()); }
 
-    uint16_t get_primary_image_ID() const { return m_primary_image_ID; }
+    heif_image_id get_primary_image_ID() const { return m_primary_image_ID; }
 
-    std::vector<uint32_t> get_image_IDs() const;
+    std::vector<heif_image_id> get_item_IDs() const;
 
-    bool image_exists(uint32_t ID) const;
+    bool image_exists(heif_image_id ID) const;
 
-    std::string get_image_type(uint32_t ID) const;
+    std::string get_item_type(heif_image_id ID) const;
 
-    Error get_compressed_image_data(uint16_t ID, std::vector<uint8_t>* out_data) const;
-
-    Error get_full_grid_image(uint32_t ID, const std::vector<uint8_t>& grid_data, heif_image* out_data);
-    Error get_image_data(uint32_t ID, heif_image* out_data);
+    Error get_compressed_image_data(heif_image_id ID, std::vector<uint8_t>* out_data) const;
 
 
-    std::shared_ptr<Box_infe> get_infe_box(uint32_t imageID) {
+    // Add by justin
+    // Error get_full_grid_image(uint32_t ID, const std::vector<uint8_t>& grid_data, heif_image* out_data);
+    // Error get_image_data(uint32_t ID, heif_image* out_data);
+
+
+    std::shared_ptr<Box_infe> get_infe_box(heif_image_id imageID) {
       auto iter = m_images.find(imageID);
-      assert(iter != m_images.end());
+      if (iter == m_images.end()) {
+        return nullptr;
+      }
+
       return iter->second.m_infe_box;
     }
 
     std::shared_ptr<Box_iref> get_iref_box() { return m_iref_box; }
 
-    Error get_properties(uint32_t imageID,
+    std::shared_ptr<Box_ipco> get_ipco_box() { return m_ipco_box; }
+
+    std::shared_ptr<Box_ipma> get_ipma_box() { return m_ipma_box; }
+
+    Error get_properties(heif_image_id imageID,
                          std::vector<Box_ipco::Property>& properties) const;
 
     std::string debug_dump_boxes() const;
@@ -85,31 +98,17 @@ namespace heif {
       std::shared_ptr<Box_infe> m_infe_box;
     };
 
-    std::map<uint32_t, Image> m_images;  // map from image ID to info structure
+    std::map<heif_image_id, Image> m_images;  // map from image ID to info structure
 
     // list of image items (does not include hidden images or Exif data)
-    std::vector<uint32_t> m_valid_image_IDs;
+    std::vector<heif_image_id> m_valid_image_IDs;
 
-    uint32_t m_primary_image_ID;
+    heif_image_id m_primary_image_ID;
+
 
     Error parse_heif_file(BitstreamRange& bitstream);
-    const Image& get_image_info(uint32_t ID) const;
 
-#if 0
-    const struct heif_decoder_plugin* m_decoder_plugin = nullptr;
-
-    Error decode_full_grid_image(uint16_t ID,
-                                 std::shared_ptr<HeifPixelImage>& img,
-                                 const std::vector<uint8_t>& grid_data) const;
-
-    Error decode_derived_image(uint16_t ID,
-                               std::shared_ptr<HeifPixelImage>& img) const;
-
-    Error decode_overlay_image(uint16_t ID,
-                               std::shared_ptr<HeifPixelImage>& img,
-                               const std::vector<uint8_t>& overlay_data) const;
-
-#endif
+    bool get_image_info(heif_image_id ID, const Image** image) const;
   };
 
 }

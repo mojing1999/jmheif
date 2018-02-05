@@ -1,0 +1,1 @@
+gcc test_de265.c -g -o test_de265_dec -I /usr/local/include -L /usr/local/lib -lde265

@@ -21,12 +21,27 @@
 #ifndef LIBHEIF_HEIF_CONTEXT_H
 #define LIBHEIF_HEIF_CONTEXT_H
 
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "error.h"
+
 #include "heif_file.h"
 #include "heif.h"
-#include <map>
-#include <set>
 
 namespace heif {
+
+
+  class ImageMetadata
+  {
+  public:
+    std::string item_type;  // e.g. "Exif"
+    std::vector<uint8_t> m_data;
+  };
+
 
   // This is a higher-level view than HeifFile.
   // Images are grouped logically into main images and their thumbnails.
@@ -39,64 +54,108 @@ namespace heif {
     Error read_from_file(const char* input_filename);
     Error read_from_memory(const void* data, size_t size);
 
+    Error get_heif_image_data(heif_image_id ID, heif_image* out_data);
+
+    heif_image* create_heif_image_buffer();
+    // destory image compressed data buffer
+    int destory_heif_image_buffer(heif_image* out_data);
+
+    heif_image_id image_index_to_id(int img_index);
+    int image_id_to_index(heif_image_id ID);
 
     class Image : public ErrorBuffer {
     public:
-      Image(std::shared_ptr<HeifFile> file, uint32_t id);
+      Image(HeifContext* file, heif_image_id id);
       ~Image();
 
       void set_resolution(int w,int h) { m_width=w; m_height=h; }
 
       void set_primary(bool flag=true) { m_is_primary=flag; }
 
-      void set_is_thumbnail_of(uint32_t id) { m_is_thumbnail=true; m_thumbnail_ref_id=id; }
-      void add_thumbnail(std::shared_ptr<Image> img) { m_thumbnails.push_back(img); }
-
-      bool is_thumbnail() const { return m_is_thumbnail; }
-
-      uint32_t get_id() const { return m_id; }
+      heif_image_id get_id() const { return m_id; }
 
       int get_width() const { return m_width; }
       int get_height() const { return m_height; }
 
       bool is_primary() const { return m_is_primary; }
 
+      // -- thumbnails
+
+      void set_is_thumbnail_of(heif_image_id id) { m_is_thumbnail=true; m_thumbnail_ref_id=id; }
+      void add_thumbnail(std::shared_ptr<Image> img) { m_thumbnails.push_back(img); }
+
+      bool is_thumbnail() const { return m_is_thumbnail; }
       std::vector<std::shared_ptr<Image>> get_thumbnails() const { return m_thumbnails; }
 
-      // add
-      uint32_t get_image_type() const { return m_image_type; }
-      void set_image_type(uint32_t img_type) { m_image_type = img_type; }
-      uint32_t get_image_codec() const { return m_image_codec; }
-      void set_image_codec(uint32_t img_codec) { m_image_codec = img_codec; }
-      uint32_t get_image_tiles_count() { return m_tiles_count; }
-      void set_image_tiles_count(uint32_t c) { m_tiles_count = c; }
 
-      Error get_image_compress_data(heif_image* out_data) const;
-      //void debug_dump_image_info();
-#if 0
-      Error decode_image(std::shared_ptr<HeifPixelImage>& img,
-                         heif_colorspace colorspace = heif_colorspace_undefined,
-                         heif_chroma chroma = heif_chroma_undefined,
-                         class HeifColorConversionParams* config = nullptr) const;
-#endif
+      // --- alpha channel
+
+      void set_is_alpha_channel_of(heif_image_id id) { m_is_alpha_channel=true; m_alpha_channel_ref_id=id; }
+      void set_alpha_channel(std::shared_ptr<Image> img) { m_alpha_channel=img; }
+
+      bool is_alpha_channel() const { return m_is_alpha_channel; }
+      std::shared_ptr<Image> get_alpha_channel() const { return m_alpha_channel; }
+
+
+      // --- depth channel
+
+      void set_is_depth_channel_of(heif_image_id id) { m_is_depth_channel=true; m_depth_channel_ref_id=id; }
+      void set_depth_channel(std::shared_ptr<Image> img) { m_depth_channel=img; }
+
+      bool is_depth_channel() const { return m_is_depth_channel; }
+      std::shared_ptr<Image> get_depth_channel() const { return m_depth_channel; }
+
+
+      void set_depth_representation_info(struct heif_depth_representation_info& info) {
+        m_has_depth_representation_info = true;
+        m_depth_representation_info = info;
+      }
+
+      bool has_depth_representation_info() const {
+        return m_has_depth_representation_info;
+      }
+
+      const struct heif_depth_representation_info& get_depth_representation_info() const {
+        return m_depth_representation_info;
+      }
+
+
+      // --- metadata
+
+      void add_metadata(std::shared_ptr<ImageMetadata> metadata) {
+        m_metadata.push_back(metadata);
+      }
+
+      std::vector<std::shared_ptr<ImageMetadata>> get_metadata() const { return m_metadata; }
 
     private:
-      std::shared_ptr<HeifFile> m_heif_file;
+      HeifContext* m_heif_context;
 
-      uint32_t m_id;
+      heif_image_id m_id;
       uint32_t m_width=0, m_height=0;
       bool     m_is_primary = false;
 
       bool     m_is_thumbnail = false;
-      uint32_t m_thumbnail_ref_id;
-
-      // add 
-      uint32_t m_image_type = 0;  // 0:hvc1, 1:grid, 2:iovl
-      uint32_t m_image_codec = 0; // default HEVC
-      uint32_t m_tiles_count = 1; // for apple HEIF format, there are many tiles. else = 1;
-
+      heif_image_id m_thumbnail_ref_id;
 
       std::vector<std::shared_ptr<Image>> m_thumbnails;
+      // // add 
+      // uint32_t m_image_type = 0;  // 0:hvc1, 1:grid, 2:iovl
+      // uint32_t m_image_codec = 0; // default HEVC
+      // uint32_t m_tiles_count = 1; // for apple HEIF format, there are many tiles. else = 1;
+
+      bool m_is_alpha_channel = false;
+      heif_image_id m_alpha_channel_ref_id;
+      std::shared_ptr<Image> m_alpha_channel;
+
+      bool m_is_depth_channel = false;
+      heif_image_id m_depth_channel_ref_id;
+      std::shared_ptr<Image> m_depth_channel;
+
+      bool m_has_depth_representation_info = false;
+      struct heif_depth_representation_info m_depth_representation_info;
+
+      std::vector<std::shared_ptr<ImageMetadata>> m_metadata;
     };
 
 
@@ -104,17 +163,13 @@ namespace heif {
 
     std::shared_ptr<Image> get_primary_image() { return m_primary_image; }
 
-#if 0
-    void register_decoder(uint32_t type, const heif_decoder_plugin* decoder_plugin) {
-      // TODO: move plugin registry from HeifFile to HeifContext and decode image in this class
-    }
-#endif
 
-    std::string debug_dump_boxes() const { return m_heif_file->debug_dump_boxes(); }
-    std::string debug_dump_image_info(int img_idx);
+    // debug info
+    std::string debug_dump_boxes() const;
+    // std::string debug_dump_image_info(int img_idx);
 
   private:
-    std::map<uint32_t, std::shared_ptr<Image>> m_all_images;
+    std::map<heif_image_id, std::shared_ptr<Image>> m_all_images;
 
     // We store this in a vector because we need stable indices for the C API.
     std::vector<std::shared_ptr<Image>> m_top_level_images;
@@ -124,6 +179,18 @@ namespace heif {
     std::shared_ptr<HeifFile> m_heif_file;
 
     Error interpret_heif_file();
+
+    void remove_top_level_image(std::shared_ptr<Image> image);
+
+    Error get_grid_image_data(heif_image_id ID, heif_image* out_data);
+
+    int base_image_add_data(uint8_t *data, int data_len, base_image *base);
+    void destory_base_image_buffer(base_image *base);
+    int add_heif_sub_image(uint8_t *data, int data_len, heif_image *img);
+
+    void reset_heif_image_buffer(heif_image *img);
+
+
   };
 }
 

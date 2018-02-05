@@ -4,9 +4,9 @@
 #include <vector>
 #include <sstream>
 #include <string.h>
+#include <unistd.h>
 
-#include "libde265_dec_api.h"
-
+#include "libde265/de265.h"
 #include "jpeglib.h"
 #include "jerror.h"
 
@@ -17,6 +17,9 @@
 using namespace std;
 
 #define TEMP_TEST 0
+
+int sdl_refresh_image();
+
 
 int merge_tile_to_heif_image(const struct de265_image* tile_img, int idx_tile, heif_image *heif_img)
 {
@@ -39,26 +42,33 @@ int merge_tile_to_heif_image(const struct de265_image* tile_img, int idx_tile, h
     row_x = idx_tile / heif_img->tile_columns;
     col_y = idx_tile % heif_img->tile_columns;
 
-    int len = heif_img->info.width * heif_img->info.height;
+    int len = heif_img->width * heif_img->height;
 
-    if(!heif_img->heif_yuv_data) {
+    if(!heif_img->yuv_image) {
         // default for YUV420
-        heif_img->heif_yuv_data = new uint8_t[len * 3 / 2];
-        memset(heif_img->heif_yuv_data, 0, len * 3 / 2);
+        heif_img->yuv_len = len * 3 / 2;
+        heif_img->yuv_image = new uint8_t[len * 3 / 2];
+        memset(heif_img->yuv_image, 0, len * 3 / 2);
+    }
+    else if((len * 3 / 2) > heif_img->yuv_len){
+        delete [] heif_img->yuv_image;
+        heif_img->yuv_len = len * 3 / 2;
+        heif_img->yuv_image = new uint8_t[len * 3 / 2];
+        memset(heif_img->yuv_image, 0, len * 3 / 2);
     }
 
-    heif_img_yuv[0] = heif_img->heif_yuv_data;
+    heif_img_yuv[0] = heif_img->yuv_image;
     heif_img_yuv[1] = heif_img_yuv[0] + len;
     heif_img_yuv[2] = heif_img_yuv[1] + len / 4;
 
-    heif_img_width = heif_img->info.width;
-    heif_img_height = heif_img->info.height;
+    heif_img_width = heif_img->width;
+    heif_img_height = heif_img->height;
 
 
     //
     tile_width = de265_get_image_width(tile_img, 0);   // heif_img->tile_info->width;
     tile_height = de265_get_image_height(tile_img, 0);   // heif_img->tile_info->height;
-
+    // printf("merge_tile_to_heif_image() idx_tile = %d\n", idx_tile);
 
     // ---------------------------------------------------------------------------
     for (int c = 0; c < 3; c++) {
@@ -107,43 +117,7 @@ int merge_tile_to_heif_image(const struct de265_image* tile_img, int idx_tile, h
 }
 
 
-
-heif_image *create_heif_image_buffer()
-{
-    heif_image *img = new heif_image;
-
-    memset(img, 0x0, sizeof(heif_image));
-
-    return img;
-}
-
-void destroy_heif_image_buffer(heif_image *img)
-{
-    if(img->heif_yuv_data) {
-        delete [] img->heif_yuv_data;
-        img->heif_yuv_data = 0;
-    }
-
-    if(img->arr_tile_data_len) {
-        delete [] img->arr_tile_data_len;
-        img->arr_tile_data_len = 0;
-    }
-    
-    cout << " delete image data tile data" << endl;
-    if(img->arr_tile_data) {
-        for(int i = 0; i < img->tiles_count; i++) {
-            if(img->arr_tile_data[i]) {
-                delete [] img->arr_tile_data[i];
-                img->arr_tile_data[i] = 0;
-            }
-        }
-        
-        delete [] img->arr_tile_data;
-        img->arr_tile_data = 0;
-    }
-
-    return ;
-}
+#if 0
 
 
 void convert_yuv420_to_jpeg(uint8_t *yuv_buf, int width, int height, int quality, const char *jpeg_name)
@@ -212,6 +186,225 @@ void convert_yuv420_to_jpeg(uint8_t *yuv_buf, int width, int height, int quality
     return ;
 }
 
+#endif
+
+
+/**
+ *  libde265 decode image
+ * 
+ */
+static int heif_decode_grid_image(heif_image *heif_img)
+{
+    de265_error err =DE265_OK;
+    int frame_index = 0;
+    int more = 1;
+
+    // printf("heif_decode_grid_image(), width = %d, height = %d, data_len = %d\n", heif_img->width, heif_img->height, heif_img->_image.data_len);
+
+    de265_decoder_context *ctx = de265_new_decoder();
+    de265_start_worker_threads(ctx, 1);
+
+
+    // push data to decoder
+    de265_push_data(ctx, heif_img->_image.buf, heif_img->_image.data_len, 0, 0);
+    // de265_push_end_of_frame(ctx);
+    de265_flush_data(ctx);
+
+    // get image
+    while(more) {
+        more = 0;
+        err = de265_decode(ctx, &more);
+        if(err != DE265_OK) {
+            more = 0;
+            break;
+        }
+
+        const struct de265_image *img = de265_get_next_picture(ctx);
+        if(img) {
+            // 
+            // printf("de265 decode %d framse\n", frame_index);
+            merge_tile_to_heif_image(img, frame_index, heif_img);
+
+            sdl_refresh_image();
+            frame_index ++;
+
+            // usleep(100000);
+        }
+
+        // img = 0;
+        // printf("more = %d , img = %p\n", more, img);
+        // show warnings
+
+        for (;;) {
+            de265_error warning = de265_get_warning(ctx);
+            if (warning==DE265_OK) {
+              break;
+            }
+
+            fprintf(stderr,"WARNING: %s\n", de265_get_error_text(warning));
+          }
+    }
+
+
+
+
+    // delete decoder
+    de265_free_decoder(ctx);
+
+    return 0;
+}
+
+static int heif_decode_hvc1_image(heif_image *heif_img)
+{
+    de265_error err =DE265_OK;
+    int frame_index = 0;
+    int more = 1;
+
+    // printf("heif_decode_hvc1_image(), width = %d, height = %d\n", heif_img->width, heif_img->height);
+    de265_decoder_context *ctx = de265_new_decoder();
+    de265_reset(ctx);
+    de265_start_worker_threads(ctx, 1);
+
+
+    // push data to decoder
+    de265_push_data(ctx, heif_img->_image.buf, heif_img->_image.data_len, 0, 0);
+    // de265_push_end_of_frame(ctx);
+    de265_flush_data(ctx);
+
+    // get image
+    while(more) {
+        more = 0;
+        err = de265_decode(ctx, &more);
+        if(err != DE265_OK) {
+            more = 0;
+
+            printf("----------- de265_decode err = %d\n", err);
+            break;
+        }
+
+        const struct de265_image *img = de265_get_next_picture(ctx);
+        if(img) {
+            // printf("de265 decode %d framse, img = %p\n", frame_index, img);
+            // 
+            // merge_tile_to_heif_image(img, frame_index, heif_img);
+            uint8_t *heif_img_yuv[3] = { 0 };
+
+            int width = de265_get_image_width(img, 0);
+            int height = de265_get_image_height(img, 0);
+            int len = width * height;
+
+            if(!heif_img->yuv_image) {
+                // default for YUV420
+                heif_img->yuv_len = len * 3 / 2;
+                heif_img->yuv_image = new uint8_t[len * 3 / 2];
+                memset(heif_img->yuv_image, 0, len * 3 / 2);
+
+                // printf("heif_img->yuv_image = %p, len = %d\n", heif_img->yuv_image, heif_img->yuv_len);
+            }
+            else if((len * 3 / 2) > heif_img->yuv_len){
+                delete [] heif_img->yuv_image;
+                heif_img->yuv_len = len * 3 / 2;
+                heif_img->yuv_image = new uint8_t[len * 3 / 2];
+                memset(heif_img->yuv_image, 0, len * 3 / 2);
+                // printf("heif_img->yuv_image = %p, len = %d\n", heif_img->yuv_image, heif_img->yuv_len);
+            }
+
+            heif_img_yuv[0] = heif_img->yuv_image;
+            heif_img_yuv[1] = heif_img_yuv[0] + len;
+            heif_img_yuv[2] = heif_img_yuv[1] + len / 4;
+            
+            for (int c = 0; c < 3; c++) {
+                int stride;
+                const uint8_t* data = de265_get_image_plane(img, c, &stride);
+
+                int w = de265_get_image_width(img, c);
+                int h = de265_get_image_height(img, c);
+
+                // printf("w = %d, h = %d, stride = %d\n", w, h, stride);
+
+                uint8_t *dst_mem = heif_img_yuv[c];
+                for(int y = 0; y < h; y++) {
+                    memcpy(dst_mem + y*w, data+y*stride, w);
+                }
+
+            }
+
+
+
+
+            sdl_refresh_image();
+            frame_index ++;
+            break;
+            // usleep(100000);
+        }
+
+        // img = 0;
+        // printf("more = %d , img = %p\n", more, img);
+        // show warnings
+
+        for (;;) {
+            de265_error warning = de265_get_warning(ctx);
+            if (warning==DE265_OK) {
+              break;
+            }
+
+            fprintf(stderr,"WARNING: %s\n", de265_get_error_text(warning));
+            break;
+          }
+    }
+
+
+
+
+    // delete decoder
+    de265_free_decoder(ctx);
+
+    return 0;
+}
+
+
+
+// save hevc data to file
+int save_hevc_to_file(const char *file_name, uint8_t *data, int data_len)
+{
+    FILE *ofile = fopen(file_name, "wb");
+
+    fwrite(data, 1, data_len, ofile);
+
+    fclose(ofile);
+
+    return 0;
+}
+
+/**
+ *  SDL refresh
+ */
+#define SFM_REFRESH_EVENT  (SDL_USEREVENT + 1) 
+int sdl_refresh_image()
+{
+    // printf("sdl_refresh_image() ----- \n");
+    SDL_Event event;
+    event.type = SFM_REFRESH_EVENT;
+    SDL_PushEvent(&event);
+
+    return 0;
+}
+
+int heif_switch_image(heif_handle h, int index, heif_image *img)
+{
+    heif_get_image_data(h, index, img);
+    if(HEIF_IMAGE_TYPE_GRID == img->image_type) {
+        heif_decode_grid_image(img);
+    }
+    if(HEIF_IMAGE_TYPE_HVC1 == img->image_type) {
+        heif_decode_hvc1_image(img);
+    }
+
+    sdl_refresh_image();
+
+
+    return 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -230,6 +423,7 @@ int main(int argc, char **argv)
     heif_error err;
 
     int num_imgs = 0;
+    int index = 0;
 
     h = heif_hendle_alloc();
 
@@ -239,7 +433,7 @@ int main(int argc, char **argv)
     }
 
 
-    //heif_debug_dump_box(h);
+    // heif_debug_dump_box(h);
 
     cout << "----------------------------------------------" << endl;
 
@@ -253,20 +447,14 @@ int main(int argc, char **argv)
     cout << "primary image index: " << idx_primary << endl;
 
 
-#if 0
-    image_handle img_handle;
-    err = heif_get_image_handle(h, idx_primary, &img_handle);
 
-    cout << "primary image handle " << img_handle << endl;
-#endif
-
-    heif_debug_dump_image_info(h, idx_primary);
+    // heif_debug_dump_image_info(h, idx_primary);
 
 
-
-    heif_image *image_data = create_heif_image_buffer();
+    index = idx_primary;
+    heif_image *image_data = heif_create_image_buffer(h);
     //memset(&image_data, 0x0, sizeof(heif_image));
-    err = heif_get_image_compressed_data(h, idx_primary, image_data);
+    err = heif_get_image_data(h, index, image_data);
 
     if(0 != err.code) {
         std::cerr << "Can not get HEIF image data " << err.message << endl;
@@ -274,37 +462,31 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    cout << "tiles count: " << image_data->tiles_count  << endl;
-    cout << "tile rows: " << image_data->tile_rows << " columns: " << image_data->tile_columns << endl;
-    //cout << "tile width: " << image_data.tile_info->width << " height: " << image_data.tile_info->height << endl;
 
-    cout << "tile data len: " << image_data->arr_tile_data_len[0] << endl;
-    cout << "tile data: " << image_data->arr_tile_data[0] << endl;
+#if 1
+    if(HEIF_IMAGE_TYPE_GRID == image_data->image_type) {
+        heif_decode_grid_image(image_data);
 
-
-#if 0
-    for(int i = 0; i < image_data->tiles_count; i++) {
-        string filename;
-        std::ostringstream s;
-        s << "tile-" << i << ".hevc";
-        filename.assign(s.str());
-        FILE *ofile = fopen(filename.c_str(), "wb");
-        fwrite(image_data->arr_tile_data[i], 1, image_data->arr_tile_data_len[i], ofile);
-        fclose(ofile);
+        // std::cout << "grid image size " << image_data->_image.data_len << std::endl;
+        // const char *file_name = "grid_image.hevc";
+        // save_hevc_to_file(file_name, image_data->_image.buf, image_data->_image.data_len);
+        
+    }
+    else if(HEIF_IMAGE_TYPE_HVC1 == image_data->image_type) {
+        // const char *file_name = "hvc1_image.hevc";
+        // save_hevc_to_file(file_name, image_data->_image.buf, image_data->_image.data_len);
+        heif_decode_hvc1_image(image_data);
     }
 
 
-    cout << "save hevc finsh" << endl;
+    // cout << "save hevc finsh" << endl;
 #endif
 
     // TODO：
 
-    int width = image_data->info.width;
-    int height = image_data->info.height;
 
-
-
-
+    int width = image_data->width;
+    int height = image_data->height;
 
 #if DISPLAY_BY_SDL
     // SDL2
@@ -318,10 +500,13 @@ int main(int argc, char **argv)
     srcrect.w = width;
     srcrect.h = height;
 
+    int wnd_width = 800;
+    int wnd_height = 600;
     dstrect.x = 0;
     dstrect.y = 0;
-    dstrect.w = 800;
-    dstrect.h = 600;
+    dstrect.w = wnd_width;
+    dstrect.h = wnd_height;
+
 
     if(SDL_Init(SDL_INIT_VIDEO) < 0) {
         cout << "SDL can not init, err: " << SDL_GetError() << endl;
@@ -333,7 +518,7 @@ int main(int argc, char **argv)
 
     window = SDL_CreateWindow("HEIF player",
             SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-            800, 600, SDL_WINDOW_SHOWN);
+            wnd_width, wnd_height, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE/* | SDL_WINDOW_MAXIMIZED*/);
 
     if(NULL == window) {
         cout << "SDL window can not be created, err: " << SDL_GetError() << endl;
@@ -350,72 +535,71 @@ int main(int argc, char **argv)
     SDL_GetRendererInfo(renderer, &info);
     cout << "Using " << info.name << " rendering" << endl;
 
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_YV12, SDL_TEXTUREACCESS_STREAMING, width, height);
+    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV/*SDL_PIXELFORMAT_YV12*/, SDL_TEXTUREACCESS_STATIC/*SDL_TEXTUREACCESS_STREAMING*/, width, height);
     if(NULL == texture) {
         cout << "SDL texture can not be create, err: " << SDL_GetError() << endl;
         return 0;
     }
-    
+
+    // 
+    SDL_GetWindowSize(window, &wnd_width, &wnd_height);
+    dstrect.w = wnd_width;
+    dstrect.h = wnd_height;
 #endif
 
 
-
-
-    const struct de265_image *img = 0;
-    de265_decoder_context *dec_ctx = heif_create_hevc_decoder();
-
-    for(int i = 0; i < image_data->tiles_count; i++) {
-    //for(int i = image_data->tiles_count - 1; i >= 0 ; i--) {
-        // decoding every tiles
-        img = heif_decode_hevc_image(dec_ctx, image_data->arr_tile_data[i], image_data->arr_tile_data_len[i], 0, 0);
-
-        if(img) {
-            // copy tiles data to big picture
-            merge_tile_to_heif_image(img, i, image_data);
-
-#if DISPLAY_BY_SDL
-
-            int stride = width, chroma_stride = width / 2;
-            const uint8_t* y = image_data->heif_yuv_data;
-            const uint8_t* cb = y + width * height;
-            const uint8_t* cr = cb + width*height / 4;
-
-            //printf("y=%p, stride=%d, cb = %p, cr = %p, chroma_stride = %d\n", y, stride, cb, cr, chroma_stride);
-            SDL_UpdateYUVTexture(texture, NULL, 
-                                y, stride,
-                                cb, chroma_stride,
-                                cr, chroma_stride);
-
-            //SDL_UpdateTexture(texture, NULL, image_data->heif_yuv_data, width);
-
-            SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, &srcrect, &dstrect);
-            SDL_RenderPresent(renderer);
-
-        }
-
-
-        heif_reset_hevc_decoder(dec_ctx);
-        de265_release_next_picture(dec_ctx);
-    }
-
-#endif
+#if 0   // save to jpg
     std::string jpg_name = in_filename + ".jpg";
     //char * jpeg_name = (char*)"heif2jpeg.jpg";
     convert_yuv420_to_jpeg(image_data->heif_yuv_data, width, height, 80, jpg_name.c_str());
 
-    // show picture in sdl
+
+#endif
 
 
 #if DISPLAY_BY_SDL
+
+    sdl_refresh_image();
+
     for(;;) {
         SDL_WaitEvent(&event);
         if(event.type == SDL_QUIT) {
+            printf("--- SDL SDL_QUIT\n");
             break;
         }
+        else if(event.type == SFM_REFRESH_EVENT) {
+            // display
+            // printf("--- event.type == SFM_REFRESH_EVENT(%d)\n", event.type);
+            if(image_data->yuv_image) {
+                width = image_data->width;
+                int stride = width, chroma_stride = width / 2;
+                const uint8_t* y = image_data->yuv_image;
+                const uint8_t* cb = y + width * height;
+                const uint8_t* cr = cb + width*height / 4;
+
+                // printf("");
+                // printf("y=%p, stride=%d, cb = %p, cr = %p, chroma_stride = %d\n", y, stride, cb, cr, chroma_stride);
+                SDL_UpdateYUVTexture(texture, NULL, 
+                                    y, stride,
+                                    cb, chroma_stride,
+                                    cr, chroma_stride);
+
+                // SDL_UpdateTexture(texture, NULL, image_data->yuv_image, width);
+
+                SDL_RenderClear(renderer);
+                SDL_RenderCopy(renderer, texture, &srcrect, &dstrect);
+                SDL_RenderPresent(renderer);
+            }
+        }
         else if(event.type == SDL_KEYDOWN) {
+            // printf("--- SDL keydown : %d\n", event.key.keysym.sym);
             if(event.key.keysym.sym == SDLK_ESCAPE) {
                 break;
+            }
+            else if(event.key.keysym.sym == SDLK_RIGHT) {
+                // switch image display
+                index = (index+1) %  num_imgs;
+                heif_switch_image(h, index, image_data);
             }
         }
     }
@@ -429,9 +613,9 @@ int main(int argc, char **argv)
 
 
     // free heif_image
-    heif_destroy_hevc_decoder(dec_ctx);
+    // heif_destroy_hevc_decoder(dec_ctx);
 
-    destroy_heif_image_buffer(image_data);
+    heif_destory_image_buffer(h, image_data);
     heif_handle_free(h);
 
     return 0;

@@ -27,6 +27,7 @@
 #include <vector>
 #include <assert.h>
 #include <iostream>
+#include <string.h>
 
 using namespace heif;
 
@@ -111,17 +112,8 @@ int heif_get_primary_image_index(heif_handle h)
 {
   struct heif_context* ctx = (struct heif_context*)h;
 
- 
-  const std::vector<std::shared_ptr<HeifContext::Image>> images = ctx->context->get_top_level_images();
-  for(size_t i = 0; i < images.size(); i++) {
-    if(true == images[i]->is_primary()) {
-      return i;
-    }
-  }
+  return ctx->context->image_id_to_index(ctx->context->get_primary_image()->get_id());
 
-
-
-  return -1;
 }
 
 // Number of top-level image in the HEIF file. This does not include the thumbnails or the
@@ -135,72 +127,36 @@ int heif_get_number_of_images(heif_handle h)
   return (int)ctx->context->get_top_level_images().size();
 }
 
-#if 0
+
 LIBHEIF_API
-heif_error heif_get_image_handle(heif_handle h, int image_idx, image_handle* img_handle)
+heif_error heif_get_image_data(heif_handle h, int image_idx, heif_image* out_data)
 {
   struct heif_context* ctx = (struct heif_context*)h;
 
-  if (!img_handle) {
-    Error err(heif_error_Usage_error,
-              heif_suberror_Null_pointer_argument);
-    return err.error_struct(ctx->context.get());
-  }
 
-  const std::vector<std::shared_ptr<HeifContext::Image>> images = ctx->context->get_top_level_images();
-  if (image_idx<0 || (size_t)image_idx >= images.size()) {
-    Error err(heif_error_Usage_error, heif_suberror_Nonexisting_image_referenced);
-    return err.error_struct(ctx->context.get());
-  }
-
-  
-  heif_image_handle *img = new heif_image_handle();
-  img->image = images[image_idx];
-
-  (*img_handle) = img;
-
-  return Error::Ok.error_struct(ctx->context.get());
-}
-#endif
-
-#if 0
-LIBHEIF_API
-heif_error heif_get_image_tiles_compressed_data(heif_handle h, int image_idx, int tile_idx, std::vector<uint8_t>* out_data)
-{
-  struct heif_context* ctx = (struct heif_context*)h;
-
-  const std::vector<std::shared_ptr<HeifContext::Image>> images = ctx->context->get_top_level_images();
-  if (image_idx<0 || (size_t)image_idx >= images.size()) {
-    Error err(heif_error_Usage_error, heif_suberror_Nonexisting_image_referenced);
-    return err.error_struct(ctx->context.get());
-  }
-
-  images[image_idx]->get_image_compress_data_with_tiles(tile_idx, out_data);
-
-  return Error::Ok.error_struct(ctx->context.get());
-}
-#endif
-
-
-
-LIBHEIF_API
-heif_error heif_get_image_compressed_data(heif_handle h, int image_idx, heif_image* out_data)
-{
-  struct heif_context* ctx = (struct heif_context*)h;
-
-  const std::vector<std::shared_ptr<HeifContext::Image>> images = ctx->context->get_top_level_images();
-  if (image_idx<0 || (size_t)image_idx >= images.size()) {
-    Error err(heif_error_Usage_error, heif_suberror_Nonexisting_image_referenced);
-    return err.error_struct(ctx->context.get());
-  }
-
-  images[image_idx]->get_image_compress_data(out_data);
+  ctx->context->get_heif_image_data(ctx->context->image_index_to_id(image_idx), out_data);
 
   return Error::Ok.error_struct(ctx->context.get());
   
 }
 
 
+LIBHEIF_API
+heif_image *heif_create_image_buffer(heif_handle h)
+{
+  struct heif_context* ctx = (struct heif_context*)h;
+
+  return ctx->context->create_heif_image_buffer();
+}
+
+LIBHEIF_API
+void heif_destory_image_buffer(heif_handle h,heif_image *img)
+{
+  struct heif_context* ctx = (struct heif_context*)h;
+
+  ctx->context->destory_heif_image_buffer(img);
+
+}
 
 
 
@@ -227,15 +183,6 @@ void heif_debug_dump_box(heif_handle h)
   return ;
 }
 
-LIBHEIF_API
-void heif_debug_dump_image_info(heif_handle h, int image_idx)
-{
-  struct heif_context* ctx = (struct heif_context*)h;
-
-  std::cout << ctx->context->debug_dump_image_info(image_idx) << std::endl;
-
-  return ;  
-}
 
 
 

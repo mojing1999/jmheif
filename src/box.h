@@ -29,6 +29,7 @@
 #include <istream>
 
 #include "error.h"
+#include "heif.h"
 #include "logging.h"
 #include "bitstream.h"
 
@@ -195,13 +196,13 @@ namespace heif {
 
     std::string dump(Indent&) const override;
 
-    uint32_t get_item_ID() const { return m_item_ID; }
+    heif_image_id get_item_ID() const { return m_item_ID; }
 
   protected:
     Error parse(BitstreamRange& range) override;
 
   private:
-    uint32_t m_item_ID;
+    heif_image_id m_item_ID;
   };
 
 
@@ -218,7 +219,7 @@ namespace heif {
     };
 
     struct Item {
-      uint32_t item_ID;
+      heif_image_id item_ID;
       uint8_t  construction_method = 0; // >= V1
       uint16_t data_reference_index;
       uint64_t base_offset = 0;
@@ -249,7 +250,7 @@ namespace heif {
 
     bool is_hidden_item() const { return m_hidden_item; }
 
-    uint16_t get_item_ID() const { return m_item_ID; }
+    heif_image_id get_item_ID() const { return m_item_ID; }
 
     std::string get_item_type() const { return m_item_type; }
 
@@ -257,7 +258,7 @@ namespace heif {
     Error parse(BitstreamRange& range) override;
 
   private:
-      uint16_t m_item_ID;
+      heif_image_id m_item_ID;
       uint16_t m_item_protection_index;
 
       std::string m_item_type;
@@ -305,7 +306,7 @@ namespace heif {
       std::shared_ptr<Box> property;
     };
 
-    Error get_properties_for_item_ID(uint32_t itemID,
+    Error get_properties_for_item_ID(heif_image_id itemID,
                                      const std::shared_ptr<class Box_ipma>&,
                                      std::vector<Property>& out_properties) const;
 
@@ -345,13 +346,13 @@ namespace heif {
       uint16_t property_index;
     };
 
-    const std::vector<PropertyAssociation>* get_properties_for_item_ID(uint32_t itemID) const;
+    const std::vector<PropertyAssociation>* get_properties_for_item_ID(heif_image_id itemID) const;
 
   protected:
     Error parse(BitstreamRange& range) override;
 
     struct Entry {
-      uint32_t item_ID;
+      heif_image_id item_ID;
       std::vector<PropertyAssociation> associations;
     };
 
@@ -362,6 +363,10 @@ namespace heif {
   class Box_auxC : public Box {
   public:
   Box_auxC(const BoxHeader& hdr) : Box(hdr) { }
+
+    std::string get_aux_type() const { return m_aux_type; }
+
+    std::vector<uint8_t> get_subtypes() const { return m_aux_subtypes; }
 
     std::string dump(Indent&) const override;
 
@@ -422,6 +427,9 @@ namespace heif {
     int top_rounded(int image_height) const;   // first row
     int bottom_rounded(int image_height) const; // last row included in the cropped image
 
+    int get_width_rounded() const;
+    int get_height_rounded() const;
+
   protected:
     Error parse(BitstreamRange& range) override;
 
@@ -439,9 +447,9 @@ namespace heif {
 
     std::string dump(Indent&) const override;
 
-    bool has_references(uint32_t itemID) const;
-    uint32_t get_reference_type(uint32_t itemID) const;
-    std::vector<uint32_t> get_references(uint32_t itemID) const;
+    bool has_references(heif_image_id itemID) const;
+    uint32_t get_reference_type(heif_image_id itemID) const;
+    std::vector<heif_image_id> get_references(heif_image_id itemID) const;
 
   protected:
     Error parse(BitstreamRange& range) override;
@@ -450,8 +458,8 @@ namespace heif {
     struct Reference {
       BoxHeader header;
 
-      uint32_t from_item_ID;
-      std::vector<uint32_t> to_item_ID;
+      heif_image_id from_item_ID;
+      std::vector<heif_image_id> to_item_ID;
     };
 
     std::vector<Reference> m_references;
@@ -461,7 +469,7 @@ namespace heif {
   class Box_hvcC : public Box {
   public:
     Box_hvcC(const BoxHeader& hdr) : Box(hdr) {
-#if defined(__EMSCRIPTEN__)
+#if !defined(HAS_BOOL_ARRAY)
       m_general_constraint_indicator_flags.resize(NUM_CONSTRAINT_INDICATOR_FLAGS);
 #endif
     }
@@ -480,7 +488,7 @@ namespace heif {
     bool     m_general_tier_flag;
     uint8_t  m_general_profile_idc;
     uint32_t m_general_profile_compatibility_flags;
-#if !defined(__EMSCRIPTEN__)
+#if defined(HAS_BOOL_ARRAY)
     std::array<bool,NUM_CONSTRAINT_INDICATOR_FLAGS> m_general_constraint_indicator_flags;
 #else
     std::vector<bool> m_general_constraint_indicator_flags;
@@ -539,7 +547,7 @@ namespace heif {
       BoxHeader header;
       uint32_t group_id;
 
-      std::vector<uint32_t> entity_ids;
+      std::vector<heif_image_id> entity_ids;
     };
 
     std::vector<EntityGroup> m_entity_groups;
